@@ -37,9 +37,10 @@ The system uses RocksDB as its underlying storage engine, providing high-perform
 
 1. Clone the repository:
 
-``` git clone https://github.com/yourusername/stickylogs.git
+  ```
+    git clone https://github.com/b3h3rkz/stickylogs.git
     cd stickylogs
-```
+  ```
 2. Install RocksDB:
 - On macOS with Homebrew:
   ```
@@ -51,4 +52,42 @@ The system uses RocksDB as its underlying storage engine, providing high-perform
   ```
 
 3. Build the project:
+  ```
+  mkdir build && cd build
+  cmake .. && make
+  ```
+This will create two executables: `stickylogs` (main application) and `stickylogs_benchmark` (benchmark suite).
+
+### Running the Application
+
+To run the main application:
+  ```
+  ./stickylogs
+  ```
+To run the benchmark suite:
+  ```
+  ./stickylogs_benchmark
+  ```
+## Usage
+
+The main application demonstrates basic usage of the StickyLogs system, including inserting transactions and querying them.
+
+For more advanced usage, refer to the `DBWrapper` class in `db_wrapper.h`. Key methods include:
+
+- `insert_transaction(const Transaction& transaction)`
+- `bulk_insert_transactions(const std::vector<Transaction>& transactions)`
+- `get_transaction(const std::string& id)`
+- `get_transactions_by_date_range(int64_t start_timestamp, int64_t end_timestamp)`
+
+## Benchmarking
+
+The benchmark suite (`stickylogs_benchmark`) provides performance metrics for key operations. Use this to test the system's performance under various conditions and to guide optimization efforts.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
