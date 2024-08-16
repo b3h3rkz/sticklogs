@@ -1,0 +1,67 @@
+# Compiled object files
+*.o
+*.obj
+
+# Compiled dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled static libraries
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+
+# Build directories
+build/
+bin/
+lib/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDE-specific files (for various IDEs)
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# RocksDB database files
+stickylogs_db/
+
+# Logs
+*.log
+
+# Dependency directories (if you're using any package managers)
+vcpkg/
+conan/
+
+# Backup files
+*.bak
+
+# Core dumps
+core
+
+# Temporary files
+*.tmp
+
+# User-specific files
+*.user
+*.suo
+
+# Debug symbols
+*.pdb
+
+# Precompiled headers
+*.gch
+*.pch
