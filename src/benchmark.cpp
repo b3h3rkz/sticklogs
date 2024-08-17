@@ -75,7 +75,7 @@ void run_benchmarks() {
         double range_query_time = benchmark([&]() {
             db.get_transactions_by_date_range(start_time, end_time);
         }, 100);
-        std::cout << "Average time for 24-hour range query: " << range_query_time << " seconds\n";
+        std::cout << "Average time fetching all data added in the last 24hrs: " << range_query_time << " seconds\n";
 
     } catch (const std::exception& e) {
         std::cerr << "Error in benchmarking: " << e.what() << std::endl;
