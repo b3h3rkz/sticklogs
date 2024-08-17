@@ -16,7 +16,7 @@ private:
 public:
     TransactionGenerator() : 
         gen(std::chrono::system_clock::now().time_since_epoch().count()),
-        amount_dist(1, 1000000),
+        amount_dist(1, 1000),
         currency_dist(0, 4),
         id_counter(0) {}
 
@@ -61,7 +61,7 @@ void run_benchmarks() {
             }
             db.bulk_insert_transactions(transactions);
         }, 10);
-        std::cout << "Average time for bulk insert of 1,000,000 transactions: " << bulk_insert_time << " seconds\n";
+        std::cout << "Average time for bulk insert of 1,000 transactions: " << bulk_insert_time << " seconds\n";
 
         // Retrieval benchmark
         double retrieval_time = benchmark([&]() {
