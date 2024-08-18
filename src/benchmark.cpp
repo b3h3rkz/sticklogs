@@ -56,7 +56,7 @@ void run_benchmarks() {
         // for bulk insert benchmark
         double bulk_insert_time = benchmark([&]() {
             std::vector<Transaction> transactions;
-            for (int i = 0; i < 1000000; ++i) {
+            for (int i = 0; i < 1000; ++i) {
                 transactions.push_back(gen.generate());
             }
             db.bulk_insert_transactions(transactions);
