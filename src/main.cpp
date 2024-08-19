@@ -123,10 +123,16 @@ int main(int argc, char* argv[]) {
         std::cout << "Press Ctrl+C to stop the service." << std::endl;
 
         while (g_running) {
+            boost::system::error_code ec;
             tcp::socket socket(io_context);
-            acceptor.accept(socket);
-            std::cout << "New connection accepted at: " << get_current_time() << std::endl;
-            std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
+            
+            // Use accept with a timeout to allow checking g_running
+            acceptor.accept(socket, ec);
+            
+            if (!ec) {
+                std::cout << "New connection accepted at: " << get_current_time() << std::endl;
+                std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
+            }
         }
         std::cout << "Shutting down service at: " << get_current_time() << std::endl;
 
