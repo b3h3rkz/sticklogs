@@ -7,6 +7,9 @@
 
 DBWrapper::DBWrapper(const std::string& db_path) {
     rocksdb::Options options;
+    // I took these examples from Facebooks' setup for tuning Rocksdb to improve performance
+    options.IncreaseParallelism();
+    options.OptimizeLevelStyleCompaction();
     options.create_if_missing = true;
     rocksdb::DB* db_ptr = nullptr;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db_ptr);
