@@ -6,18 +6,17 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <signal.h>
+#include <csignal>
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
 
-void signal_handler(int signum) {
-    std::cout << "Interrupt signal (" << signum << ") received.\n";
-    if (g_db) {
-        delete g_db;
-        g_db = nullptr;
-    }
-    exit(signum);
+DBWrapper* g_db = nullptr;
+
+volatile sig_atomic_t g_running = 1;
+
+void signal_handler(int signal) {
+    g_running = 0;
 }
 
 void handle_connection(tcp::socket socket, DBWrapper& db) {
@@ -89,6 +88,14 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
     }
 }
 
+std::string get_current_time() {
+    auto now = std::chrono::system_clock::now();
+    auto now_c = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S");
+    return ss.str();
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <db_path>" << std::endl;
@@ -101,15 +108,28 @@ int main(int argc, char* argv[]) {
 
     g_db = new DBWrapper(db_path);
     try {
-        DBWrapper db(db_path);
-        boost::asio::io_context io_context;
-        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 12345));
+        std::cout << "=== Welcome To StickyLogs Service ===" << std::endl;
+        std::cout << "Starting the service at: " << get_current_time() << std::endl;
+        std::cout << "Database path: " << db_path << std::endl;
 
-        while (true) {
+        DBWrapper db(db_path);
+        std::cout << "Database opened successfully." << std::endl;
+
+        boost::asio::io_context io_context;
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 65432));
+
+        std::cout << "Listening on port 65432" << std::endl;
+        std::cout << "Service is ready to accept connections." << std::endl;
+        std::cout << "Press Ctrl+C to stop the service." << std::endl;
+
+        while (g_running) {
             tcp::socket socket(io_context);
             acceptor.accept(socket);
+            std::cout << "New connection accepted at: " << get_current_time() << std::endl;
             std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
         }
+        std::cout << "Shutting down service at: " << get_current_time() << std::endl;
+
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
