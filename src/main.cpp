@@ -7,6 +7,7 @@
 #include <string>
 #include <chrono>
 
+
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
 
@@ -15,52 +16,64 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
         boost::asio::streambuf buf;
         boost::asio::read_until(socket, buf, "\n");
         std::string data = boost::asio::buffer_cast<const char*>(buf.data());
-        
+        std::cout << "Received data: " << data << std::endl;  // Log raw data
+
         json j = json::parse(data);
         std::string action = j["action"];
         
         json response;
         
-        if (action == "insert") {
-            Transaction tx(j["id"], j["reference"], j["currency"], 
-                           j["amount_smallest_unit"], j["timestamp"]);
-            bool success = db.insert_transaction(tx);
-            response["success"] = success;
-            response["message"] = success ? "Transaction saved successfully" : "Failed to save transaction";
+    if (action == "insert") {
+       Transaction tx(
+        j["id"].get<std::string>(),
+        j["reference"].get<std::string>(),
+        j["currency"].get<std::string>(),
+        j["amount_smallest_unit"].get<int64_t>(),
+        j["timestamp"].get<int64_t>()
+    );
+    bool success = db.insert_transaction(tx);
+
+    response["success"] = success;
+    response["message"] = success ? "Transaction saved successfully" : "Failed to save transaction";
+    }
+    else if (action == "batch_insert") {
+        std::vector<Transaction> transactions;
+        for (const auto& tx_json : j["transactions"]) {
+        transactions.emplace_back(
+            tx_json["id"].get<std::string>(),
+            tx_json["reference"].get<std::string>(),
+            tx_json["currency"].get<std::string>(),
+            tx_json["amount_smallest_unit"].get<int64_t>(),
+            tx_json["timestamp"].get<int64_t>()
+        );
+    }
+    bool success = db.bulk_insert_transactions(transactions);
+    response["success"] = success;
+    response["message"] = success ? "Batch saved successfully" : "Failed to save batch";
+    }
+    else if (action == "query") {
+        int64_t start_timestamp = j["start_timestamp"].get<int64_t>();
+        int64_t end_timestamp = j["end_timestamp"].get<int64_t>();
+        auto transactions = db.get_transactions_by_date_range(start_timestamp, end_timestamp);
+        response["success"] = true;
+        response["transactions"] = json::array();
+        for (const auto& tx : transactions) {
+            response["transactions"].push_back({
+                {"id", tx.id()},
+                {"reference", tx.reference()},
+                {"currency", tx.currency()},
+                {"amount_smallest_unit", tx.amount_smallest_unit()},
+                {"timestamp", tx.timestamp()}
+            });
         }
-        else if (action == "batch_insert") {
-            std::vector<Transaction> transactions;
-            for (const auto& tx_json : j["transactions"]) {
-                transactions.emplace_back(tx_json["id"], tx_json["reference"], tx_json["currency"],
-                                          tx_json["amount_smallest_unit"], tx_json["timestamp"]);
-            }
-            bool success = db.bulk_insert_transactions(transactions);
-            response["success"] = success;
-            response["message"] = success ? "Batch saved successfully" : "Failed to save batch";
-        }
-        else if (action == "query") {
-            int64_t start_timestamp = j["start_timestamp"];
-            int64_t end_timestamp = j["end_timestamp"];
-            auto transactions = db.get_transactions_by_date_range(start_timestamp, end_timestamp);
-            response["success"] = true;
-            response["transactions"] = json::array();
-            for (const auto& tx : transactions) {
-                response["transactions"].push_back({
-                    {"id", tx.id()},
-                    {"reference", tx.reference()},
-                    {"currency", tx.currency()},
-                    {"amount_smallest_unit", tx.amount_smallest_unit()},
-                    {"timestamp", tx.timestamp()}
-                });
-            }
-        }
-        else {
-            response["success"] = false;
-            response["message"] = "Unknown endpoint or action";
-        }
+    }
+    else {
+        response["success"] = false;
+        response["message"] = "Unknown endpoint or action";
+    }
         
-        std::string response_str = response.dump() + "\n";
-        boost::asio::write(socket, boost::asio::buffer(response_str));
+    std::string response_str = response.dump() + "\n";
+    boost::asio::write(socket, boost::asio::buffer(response_str));
     }
     catch (std::exception& e) {
         std::cerr << "Exception in thread: " << e.what() << "\n";
@@ -74,30 +87,16 @@ int main(int argc, char* argv[]) {
     }
 
     std::string db_path = argv[1];
+
     try {
         DBWrapper db(db_path);
+        boost::asio::io_context io_context;
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 12345));
 
-        std::string command;
-        while (std::cout << "> " && std::cin >> command) {
-            if (command == "exit") {
-                break;
-            } else if (command == "insert") {
-                // data format: insert TX001 REF001 USD 10000 1628097600
-                std::string id, ref, currency;
-                int64_t amount, timestamp;
-                if (std::cin >> id >> ref >> currency >> amount >> timestamp) {
-                    Transaction tx(id, ref, currency, amount, timestamp);
-                    process_transaction(db, tx);
-                }
-            } else if (command == "query") {
-                // sample format for this: query 1628097600 1628184000
-                int64_t start, end;
-                if (std::cin >> start >> end) {
-                    query_date_range(db, start, end);
-                }
-            } else {
-                std::cout << "Unknown command. Available commands: insert, query, exit" << std::endl;
-            }
+        while (true) {
+            tcp::socket socket(io_context);
+            acceptor.accept(socket);
+            std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
         }
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

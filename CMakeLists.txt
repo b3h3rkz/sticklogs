@@ -35,6 +35,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     RocksDB::rocksdb 
     Boost::system 
     nlohmann_json::nlohmann_json
+    pthread
 )
 # Add compile options for main executable
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic)
