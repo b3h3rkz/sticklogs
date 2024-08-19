@@ -1,16 +1,16 @@
+#include <boost/asio.hpp>
+#include <nlohmann/json.hpp>
 #include "transaction.h"
 #include "db_wrapper.h"
 #include <iostream>
 #include <vector>
 #include <string>
-#include <stdexcept>
 #include <chrono>
 
 // Helper function to get current timestamp
 int64_t get_current_timestamp() {
     return std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 }
-
 // to process a single transaction
 bool process_transaction(DBWrapper& db, const Transaction& tx) {
     bool success = db.insert_transaction(tx);
@@ -42,51 +42,38 @@ void query_date_range(DBWrapper& db, int64_t start_timestamp, int64_t end_timest
     }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <db_path>" << std::endl;
+        return 1;
+    }
+
+    std::string db_path = argv[1];
     try {
-        // Initialize the database
-        DBWrapper db("./stickylogs_db");
+        DBWrapper db(db_path);
 
-        // Insert some sample transactions
-        std::vector<Transaction> transactions;
-        transactions.emplace_back("TX004", "REF001", "USD", 105000, get_current_timestamp());
-        transactions.emplace_back("TX005", "REF002", "KES", 150000, get_current_timestamp() - 86400);
-        transactions.emplace_back("TX006", "REF003", "NGN", 250000, get_current_timestamp() - 172800);
-
-        std::cout << "Inserting sample transactions..." << std::endl;
-        for (const auto& tx : transactions) {
-            if (db.insert_transaction(tx)) {
-                std::cout << "Inserted transaction successfully: " << tx.id() << std::endl;
+        std::string command;
+        while (std::cout << "> " && std::cin >> command) {
+            if (command == "exit") {
+                break;
+            } else if (command == "insert") {
+                // data format: insert TX001 REF001 USD 10000 1628097600
+                std::string id, ref, currency;
+                int64_t amount, timestamp;
+                if (std::cin >> id >> ref >> currency >> amount >> timestamp) {
+                    Transaction tx(id, ref, currency, amount, timestamp);
+                    process_transaction(db, tx);
+                }
+            } else if (command == "query") {
+                // sample format for this: query 1628097600 1628184000
+                int64_t start, end;
+                if (std::cin >> start >> end) {
+                    query_date_range(db, start, end);
+                }
             } else {
-                std::cout << "Failed to insert transaction: " << tx.id() << std::endl;
+                std::cout << "Unknown command. Available commands: insert, query, exit" << std::endl;
             }
         }
-
-        // Retrieve a specific transaction
-        std::cout << "\nRetrieving transaction TX002..." << std::endl;
-        auto tx = db.get_transaction("TX002");
-        if (tx) {
-            std::cout << "Successfully retrieved transaction: " << tx->id() 
-                      << ", Amount: " << tx->amount_smallest_unit() 
-                      << " " << tx->currency() << std::endl;
-        } else {
-            std::cout << "Transaction not found." << std::endl;
-        }
-
-        // date range query
-        std::cout << "\nRetrieving transactions from the last 2 days..." << std::endl;
-        auto range_txs = db.get_transactions_by_date_range(
-            get_current_timestamp() - 172800,  // 2 days ago
-            get_current_timestamp()            // now
-        );
-
-        std::cout << "Found " << range_txs.size() << " transactions:" << std::endl;
-        for (const auto& tx : range_txs) {
-            std::cout << "Transaction: " << tx.id() 
-                      << ", Amount: " << tx.amount_smallest_unit() 
-                      << " " << tx.currency() << std::endl;
-        }
-
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

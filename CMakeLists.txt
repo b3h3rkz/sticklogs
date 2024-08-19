@@ -12,6 +12,8 @@ link_directories("${ROCKSDB_ROOT}/lib")
 
 # Find RocksDB package
 find_package(RocksDB REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
+find_package(nlohmann_json 3.2.0 REQUIRED)
 
 # Define common source files
 set(COMMON_SOURCES
@@ -28,9 +30,12 @@ add_executable(${PROJECT_NAME}
 # Include directories for main executable
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# Link RocksDB for main executable
-target_link_libraries(${PROJECT_NAME} PRIVATE RocksDB::rocksdb)
-
+# Link the target libraries
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    RocksDB::rocksdb 
+    Boost::system 
+    nlohmann_json::nlohmann_json
+)
 # Add compile options for main executable
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic)
 
