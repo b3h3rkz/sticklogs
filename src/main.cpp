@@ -7,38 +7,63 @@
 #include <string>
 #include <chrono>
 
-// Helper function to get current timestamp
-int64_t get_current_timestamp() {
-    return std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-}
-// to process a single transaction
-bool process_transaction(DBWrapper& db, const Transaction& tx) {
-    bool success = db.insert_transaction(tx);
-    if (success) {
-        std::cout << "Transaction saved -> " << tx.id() << std::endl;
-    } else {
-        std::cerr << "Unable to save transaction: " << tx.id() << std::endl;
-    }
-    return success;
-}
+using json = nlohmann::json;
+using boost::asio::ip::tcp;
 
-bool process_batch(DBWrapper& db, const std::vector<Transaction>& transactions) {
-    bool success = db.bulk_insert_transactions(transactions);
-    if (success) {
-        std::cout << "Inserted " << transactions.size() << " transactions" << std::endl;
-    } else {
-        std::cerr << "Failed to insert batch of " << transactions.size() << " transactions" << std::endl;
+void handle_connection(tcp::socket socket, DBWrapper& db) {
+    try {
+        boost::asio::streambuf buf;
+        boost::asio::read_until(socket, buf, "\n");
+        std::string data = boost::asio::buffer_cast<const char*>(buf.data());
+        
+        json j = json::parse(data);
+        std::string action = j["action"];
+        
+        json response;
+        
+        if (action == "insert") {
+            Transaction tx(j["id"], j["reference"], j["currency"], 
+                           j["amount_smallest_unit"], j["timestamp"]);
+            bool success = db.insert_transaction(tx);
+            response["success"] = success;
+            response["message"] = success ? "Transaction saved successfully" : "Failed to save transaction";
+        }
+        else if (action == "batch_insert") {
+            std::vector<Transaction> transactions;
+            for (const auto& tx_json : j["transactions"]) {
+                transactions.emplace_back(tx_json["id"], tx_json["reference"], tx_json["currency"],
+                                          tx_json["amount_smallest_unit"], tx_json["timestamp"]);
+            }
+            bool success = db.bulk_insert_transactions(transactions);
+            response["success"] = success;
+            response["message"] = success ? "Batch saved successfully" : "Failed to save batch";
+        }
+        else if (action == "query") {
+            int64_t start_timestamp = j["start_timestamp"];
+            int64_t end_timestamp = j["end_timestamp"];
+            auto transactions = db.get_transactions_by_date_range(start_timestamp, end_timestamp);
+            response["success"] = true;
+            response["transactions"] = json::array();
+            for (const auto& tx : transactions) {
+                response["transactions"].push_back({
+                    {"id", tx.id()},
+                    {"reference", tx.reference()},
+                    {"currency", tx.currency()},
+                    {"amount_smallest_unit", tx.amount_smallest_unit()},
+                    {"timestamp", tx.timestamp()}
+                });
+            }
+        }
+        else {
+            response["success"] = false;
+            response["message"] = "Unknown endpoint or action";
+        }
+        
+        std::string response_str = response.dump() + "\n";
+        boost::asio::write(socket, boost::asio::buffer(response_str));
     }
-    return success;
-}
-
-void query_date_range(DBWrapper& db, int64_t start_timestamp, int64_t end_timestamp) {
-    auto range_txs = db.get_transactions_by_date_range(start_timestamp, end_timestamp);
-    std::cout << "Found " << range_txs.size() << " transactions in specified date range" << std::endl;
-    for (const auto& tx : range_txs) {
-        std::cout << "Transaction: " << tx.id() 
-                  << ", Amount: " << tx.amount_smallest_unit() 
-                  << " " << tx.currency() << std::endl;
+    catch (std::exception& e) {
+        std::cerr << "Exception in thread: " << e.what() << "\n";
     }
 }
 
