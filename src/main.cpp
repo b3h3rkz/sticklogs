@@ -6,10 +6,19 @@
 #include <vector>
 #include <string>
 #include <chrono>
-
+#include <signal.h>
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
+
+void signal_handler(int signum) {
+    std::cout << "Interrupt signal (" << signum << ") received.\n";
+    if (g_db) {
+        delete g_db;
+        g_db = nullptr;
+    }
+    exit(signum);
+}
 
 void handle_connection(tcp::socket socket, DBWrapper& db) {
     try {
@@ -87,7 +96,10 @@ int main(int argc, char* argv[]) {
     }
 
     std::string db_path = argv[1];
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
 
+    g_db = new DBWrapper(db_path);
     try {
         DBWrapper db(db_path);
         boost::asio::io_context io_context;
@@ -102,6 +114,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-
+    delete g_db;
     return 0;
 }

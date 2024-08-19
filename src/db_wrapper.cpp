@@ -11,6 +11,10 @@ DBWrapper::DBWrapper(const std::string& db_path) {
     options.IncreaseParallelism();
     options.OptimizeLevelStyleCompaction();
     options.create_if_missing = true;
+    options.error_if_exists = false;
+    options.keep_log_file_num = 1;
+    options.max_open_files = -1; //we are only using this now because it's running on a single process
+
     rocksdb::DB* db_ptr = nullptr;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db_ptr);
     if (!status.ok()) {
