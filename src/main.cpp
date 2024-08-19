@@ -7,26 +7,51 @@
 #include <string>
 #include <chrono>
 #include <csignal>
+#include <sstream>
+
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
 
-DBWrapper* g_db = nullptr;
+// DBWrapper* g_db = nullptr;
 
-volatile sig_atomic_t g_running = 1;
+std::atomic<bool> g_running(true);
+boost::asio::io_context* g_io_context = nullptr;
 
 void signal_handler(int signal) {
-    g_running = 0;
+    std::cout << "Received signal " << signal << ". Shutting down..." << std::endl;
+    g_running = false;
+
+    if (g_io_context) {
+        g_io_context->stop();
+    }
 }
 
 void handle_connection(tcp::socket socket, DBWrapper& db) {
     try {
-        boost::asio::streambuf buf;
-        boost::asio::read_until(socket, buf, "\n");
-        std::string data = boost::asio::buffer_cast<const char*>(buf.data());
-        std::cout << "Received data: " << data << std::endl;  // Log raw data
+        boost::asio::streambuf request;
+        boost::asio::read_until(socket, request, "\r\n\r\n");
 
-        json j = json::parse(data);
+        std::string header = boost::asio::buffer_cast<const char*>(request.data());
+        std::cout << "Received header:\n" << header << std::endl;
+
+        std::istringstream header_stream(header);
+        std::string line;
+        int content_length = 0;
+        while (std::getline(header_stream, line) && line != "\r") {
+            if (line.substr(0, 16) == "Content-Length: ") {
+                content_length = std::stoi(line.substr(16));
+                break;
+            }
+        }
+
+        std::vector<char> body(content_length);
+        boost::asio::read(socket, boost::asio::buffer(body));
+
+        std::string body_str(body.begin(), body.end());
+        std::cout << "Received body:\n" << body_str << std::endl;
+
+        json j = json::parse(body_str);
         std::string action = j["action"];
         
         json response;
@@ -80,11 +105,30 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
         response["message"] = "Unknown endpoint or action";
     }
         
-    std::string response_str = response.dump() + "\n";
+    // Prepare and send the HTTP response
+    std::string response_body = response.dump();
+    std::ostringstream response_stream;
+    response_stream << "HTTP/1.1 200 OK\r\n";
+    response_stream << "Content-Type: application/json\r\n";
+    response_stream << "Content-Length: " << response_body.length() << "\r\n";
+    response_stream << "Connection: close\r\n\r\n";
+    response_stream << response_body;    
+
+    std::string response_str = response_stream.str();
     boost::asio::write(socket, boost::asio::buffer(response_str));
+    std::cout << "Sent response:\n" << response_str << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
     }
     catch (std::exception& e) {
         std::cerr << "Exception in thread: " << e.what() << "\n";
+        std::string error_message = std::string("Error: ") + e.what();
+        std::string error_response = "HTTP/1.1 500 Internal Server Error\r\n"
+                                     "Content-Type: application/json\r\n"
+                                     "Content-Length: " + std::to_string(error_message.length()) + "\r\n"
+                                     "Connection: close\r\n\r\n" + error_message;
+        boost::asio::write(socket, boost::asio::buffer(error_response));
+        std::cout << "Sent error response:\n" << error_response << std::endl;
     }
 }
 
@@ -103,30 +147,42 @@ int main(int argc, char* argv[]) {
     }
 
     std::string db_path = argv[1];
+    const unsigned short port = 54321;
+
+    //signal handling
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    g_db = new DBWrapper(db_path);
+    // g_db = new DBWrapper(db_path);
     try {
-        std::cout << "=== Welcome To StickyLogs Service ===" << std::endl;
-        std::cout << "Starting the service at: " << get_current_time() << std::endl;
-        std::cout << "Database path: " << db_path << std::endl;
+        std::cout << "=== StickyLogs Service ===" << std::endl;
+        std::cout << "Starting service at: " << get_current_time() << std::endl;
+        
+        std::filesystem::path abs_path = std::filesystem::absolute(db_path);
+        std::cout << "Database path: " << abs_path << std::endl;
 
         DBWrapper db(db_path);
         std::cout << "Database opened successfully." << std::endl;
 
-        boost::asio::io_context io_context;
-        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 65432));
+        boost::asio::io_context io_context;         
+        g_io_context = &io_context;
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
 
-        std::cout << "Listening on port 65432" << std::endl;
+        std::cout << "Listening on port " << port << std::endl;
         std::cout << "Service is ready to accept connections." << std::endl;
         std::cout << "Press Ctrl+C to stop the service." << std::endl;
+
+        std::thread io_thread([&io_context]() {
+            while (g_running) {
+                io_context.run_for(std::chrono::seconds(1));
+                io_context.restart();
+            }
+        });
 
         while (g_running) {
             boost::system::error_code ec;
             tcp::socket socket(io_context);
             
-            // Use accept with a timeout to allow checking g_running
             acceptor.accept(socket, ec);
             
             if (!ec) {
@@ -134,12 +190,12 @@ int main(int argc, char* argv[]) {
                 std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
             }
         }
+        io_thread.join();
         std::cout << "Shutting down service at: " << get_current_time() << std::endl;
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-    delete g_db;
     return 0;
 }

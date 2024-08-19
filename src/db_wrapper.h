@@ -1,10 +1,10 @@
 #pragma once
 
 #include <rocksdb/db.h>
-#include "transaction.h"
+#include "transaction.h"  // Add this line
 #include <string>
-#include <vector>
 #include <memory>
+#include <vector>
 #include <optional>
 
 class DBWrapper {
@@ -18,11 +18,8 @@ public:
     std::vector<Transaction> get_transactions_by_date_range(int64_t start_timestamp, int64_t end_timestamp);
 
 private:
+    std::unique_ptr<rocksdb::DB> db_;
     std::string generate_key(const Transaction& transaction);
     std::string generate_key_from_timestamp(int64_t timestamp);
-    std::unique_ptr<rocksdb::DB> db_;
-
-private:
-    bool transaction_exists(const std::string& id);
-    
+    static void remove_db_lock(const std::string& db_path);
 };

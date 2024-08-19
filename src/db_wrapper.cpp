@@ -1,29 +1,55 @@
 #include "db_wrapper.h"
 #include <rocksdb/options.h>
 #include <rocksdb/write_batch.h>
-#include <ctime>
-#include <iomanip>
+#include <filesystem>
+#include <thread>
+#include <chrono>
+#include <iostream>
 #include <sstream>
+#include <iomanip>
 
 DBWrapper::DBWrapper(const std::string& db_path) {
     rocksdb::Options options;
-    // I took these examples from Facebooks' setup for tuning Rocksdb to improve performance
-    options.IncreaseParallelism();
-    options.OptimizeLevelStyleCompaction();
     options.create_if_missing = true;
     options.error_if_exists = false;
-    options.keep_log_file_num = 1;
-    options.max_open_files = -1; //we are only using this now because it's running on a single process
 
+    // Try to open the database
     rocksdb::DB* db_ptr = nullptr;
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db_ptr);
+
+    // If it fails due to a lock, try to remove the lock and retry
+    if (!status.ok() && status.IsIOError()) {
+        std::cout << "Failed to open database. Attempting to remove lock..." << std::endl;
+        remove_db_lock(db_path);
+        
+        // Wait a bit before retrying
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        status = rocksdb::DB::Open(options, db_path, &db_ptr);
+    }
+
     if (!status.ok()) {
         throw std::runtime_error("Failed to open database: " + status.ToString());
     }
+
     db_.reset(db_ptr);
 }
 
 DBWrapper::~DBWrapper() = default;
+
+void DBWrapper::remove_db_lock(const std::string& db_path) {
+    std::filesystem::path lock_file = std::filesystem::path(db_path) / "LOCK";
+    if (std::filesystem::exists(lock_file)) {
+        try {
+            std::filesystem::remove(lock_file);
+            std::cout << "Lock file removed successfully." << std::endl;
+        } catch (const std::filesystem::filesystem_error& e) {
+            std::cerr << "Failed to remove lock file: " << e.what() << std::endl;
+        }
+    } else {
+        std::cout << "Lock file not found." << std::endl;
+    }
+}
 
 bool DBWrapper::insert_transaction(const Transaction& transaction) {
     std::string key = generate_key(transaction);
