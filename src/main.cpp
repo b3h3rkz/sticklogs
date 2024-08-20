@@ -116,7 +116,7 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
 
     std::string response_str = response_stream.str();
     boost::asio::write(socket, boost::asio::buffer(response_str));
-    std::cout << "Sent response:\n" << response_str << std::endl;
+    std::cout << "Response sent:\n" << response_str << std::endl;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     }
