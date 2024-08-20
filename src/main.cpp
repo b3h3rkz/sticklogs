@@ -8,6 +8,7 @@
 #include <chrono>
 #include <csignal>
 #include <sstream>
+// #include <boost/asio/deadline_timer.hpp>
 
 
 using json = nlohmann::json;
@@ -29,8 +30,24 @@ void signal_handler(int signal) {
 
 void handle_connection(tcp::socket socket, DBWrapper& db) {
     try {
+        std::cout << "New connection established." << std::endl;
+
         boost::asio::streambuf request;
-        boost::asio::read_until(socket, request, "\r\n\r\n");
+        boost::system::error_code ec;
+
+       // Set a timeout for the entire operation
+        // timer.expires_from_now(boost::posix_time::seconds(5));
+        // timer.async_wait([&socket](const boost::system::error_code& error) {
+        //     if (!error) {
+        //         socket.close();
+        //     }
+        // });
+
+        // Read the headers
+        boost::asio::read_until(socket, request, "\r\n\r\n", ec);
+        if (ec) {
+            throw boost::system::system_error(ec, "Failed to read headers");
+        }
 
         std::string header = boost::asio::buffer_cast<const char*>(request.data());
         std::cout << "Received header:\n" << header << std::endl;
@@ -44,14 +61,31 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
                 break;
             }
         }
+        if (content_length == 0) {
+            throw std::runtime_error("Content-Length not found or zero");
+        }
 
-        std::vector<char> body(content_length);
-        boost::asio::read(socket, boost::asio::buffer(body));
 
-        std::string body_str(body.begin(), body.end());
-        std::cout << "Received body:\n" << body_str << std::endl;
+        // Read the JSON body in chunks
+        std::string body;
+        std::vector<char> chunk(1024);  // Read in 1KB chunks
+        size_t bytes_read = 0;
+        while (bytes_read < content_length) {
+            size_t chunk_size = std::min(static_cast<size_t>(content_length) - bytes_read, chunk.size());
+            size_t n = boost::asio::read(socket, boost::asio::buffer(chunk, chunk_size), ec);
+            if (ec && ec != boost::asio::error::eof) {
+                throw boost::system::system_error(ec, "Failed to read body chunk");
+            }
+            body.append(chunk.begin(), chunk.begin() + n);
+            bytes_read += n;
+            if (ec == boost::asio::error::eof) {
+                break;
+            }
+        }
 
-        json j = json::parse(body_str);
+        std::cout << "Received body:\n" << body << std::endl;
+
+        json j = json::parse(body);
         std::string action = j["action"];
         
         json response;
@@ -104,8 +138,7 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
         response["success"] = false;
         response["message"] = "Unknown endpoint or action";
     }
-        
-    // Prepare and send the HTTP response
+
     std::string response_body = response.dump();
     std::ostringstream response_stream;
     response_stream << "HTTP/1.1 200 OK\r\n";
@@ -115,20 +148,31 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
     response_stream << response_body;    
 
     std::string response_str = response_stream.str();
-    boost::asio::write(socket, boost::asio::buffer(response_str));
+    boost::asio::write(socket, boost::asio::buffer(response_str), ec);
+    if (ec) {
+            throw boost::system::system_error(ec, "Failed to send response");
+        }    
     std::cout << "Response sent:\n" << response_str << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     }
-    catch (std::exception& e) {
+    catch (const std::exception& e) {
         std::cerr << "Exception in thread: " << e.what() << "\n";
-        std::string error_message = std::string("Error: ") + e.what();
+        std::string error_message = json({
+            {"error", e.what()},
+            {"type", typeid(e).name()}
+        }).dump();
         std::string error_response = "HTTP/1.1 500 Internal Server Error\r\n"
-                                     "Content-Type: application/json\r\n"
-                                     "Content-Length: " + std::to_string(error_message.length()) + "\r\n"
-                                     "Connection: close\r\n\r\n" + error_message;
-        boost::asio::write(socket, boost::asio::buffer(error_response));
-        std::cout << "Sent error response:\n" << error_response << std::endl;
+                                    "Content-Type: application/json\r\n"
+                                    "Content-Length: " + std::to_string(error_message.length()) + "\r\n"
+                                    "Connection: close\r\n\r\n" + error_message;
+        boost::system::error_code ec;
+        boost::asio::write(socket, boost::asio::buffer(error_response), ec);
+        if (ec) {
+            std::cerr << "Failed to send error response: " << ec.message() << std::endl;
+        } else {
+            std::cout << "Sent error response:\n" << error_response << std::endl;
+        }
     }
 }
 
