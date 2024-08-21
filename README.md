@@ -38,7 +38,7 @@ The system uses RocksDB as its underlying storage engine, providing high-perform
 1. Clone the repository:
 
   ```
-    git clone https://github.com/b3h3rkz/stickylogs.git
+    git clone https://github.com/b3h3rkz/sticklogs.git
     cd stickylogs
   ```
 2. Install RocksDB:
