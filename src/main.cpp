@@ -192,12 +192,9 @@ int main(int argc, char* argv[]) {
 
     std::string db_path = argv[1];
     const unsigned short port = 54321;
-
     //signal handling
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
-
-    // g_db = new DBWrapper(db_path);
     try {
         std::cout << "=== StickyLogs Service ===" << std::endl;
         std::cout << "Starting service at: " << get_current_time() << std::endl;
