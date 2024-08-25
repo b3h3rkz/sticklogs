@@ -192,9 +192,15 @@ int main(int argc, char* argv[]) {
 
     std::string db_path = argv[1];
     const unsigned short port = 54321;
-    //signal handling
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+
+    // Use sigaction instead of signal for more reliable signal handling
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGTERM, &sa, nullptr);
+
     try {
         std::cout << "=== StickyLogs Service ===" << std::endl;
         std::cout << "Starting service at: " << get_current_time() << std::endl;
@@ -213,25 +219,31 @@ int main(int argc, char* argv[]) {
         std::cout << "Service is ready to accept connections." << std::endl;
         std::cout << "Press Ctrl+C to stop the service." << std::endl;
 
-        std::thread io_thread([&io_context]() {
-            while (g_running) {
-                io_context.run_for(std::chrono::seconds(1));
-                io_context.restart();
-            }
-        });
-
         while (g_running) {
             boost::system::error_code ec;
             tcp::socket socket(io_context);
             
-            acceptor.accept(socket, ec);
-            
-            if (!ec) {
-                std::cout << "New connection accepted at: " << get_current_time() << std::endl;
-                std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
-            }
+            // Use async_accept with a timeout to allow periodic checking of g_running
+            boost::asio::steady_timer timer(io_context);
+            acceptor.async_accept(socket, [&](const boost::system::error_code& error) {
+                timer.cancel();
+                if (!error && g_running) {
+                    std::cout << "New connection accepted at: " << get_current_time() << std::endl;
+                    std::thread(handle_connection, std::move(socket), std::ref(db)).detach();
+                }
+            });
+
+            timer.expires_after(std::chrono::seconds(1));
+            timer.async_wait([&](const boost::system::error_code& error) {
+                if (!error) {
+                    acceptor.cancel();
+                }
+            });
+
+            io_context.run();
+            io_context.restart();
         }
-        io_thread.join();
+
         std::cout << "Shutting down service at: " << get_current_time() << std::endl;
 
     } catch (const std::exception& e) {
