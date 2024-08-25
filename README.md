@@ -41,7 +41,7 @@ StickyLogs is a high-performance, concurrent logging server designed to handle m
 
 3. Clone the repository:
    ```
-   git clone https://github.com/yourusername/stickylogs.git
+   git clone https://github.com/b3h3rkz/stickylogs.git
    cd stickylogs
    ```
 
