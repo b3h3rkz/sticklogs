@@ -107,13 +107,18 @@ void handle_connection(tcp::socket& socket, DBWrapper& db) {
 
             bool success = db.insert_log(log);
 
-            response["success"] = success;
-            response["message"] = success ? "Log saved successfully" : "Failed to save log";
-            response["log"] = {
-                {"reference", log.reference()},
-                {"metadata", log.metadata()},
-                {"timestamp", log.timestamp()}
-            };
+            if (success) {
+                response["success"] = true;
+                response["message"] = "Log saved successfully";
+                response["log"] = {
+                    {"reference", log.reference()},
+                    {"metadata", log.metadata()},
+                    {"timestamp", log.timestamp()}
+                };
+            } else {
+                response["success"] = false;
+                response["message"] = "Failed to save log: Duplicate reference";
+            }
         }
         else if (action == "query_by_reference") {
             std::cout << "Processing query by reference action" << std::endl;
