@@ -1,33 +1,29 @@
-#include "transaction.h"
+#include "log.h"
 #include "db_wrapper.h"
 #include <chrono>
 #include <random>
 #include <iostream>
 #include <vector>
 
-class TransactionGenerator {
+class LogGenerator {
 private:
     std::mt19937 gen;
-    std::uniform_int_distribution<> amount_dist;
-    std::uniform_int_distribution<> currency_dist;
-    const std::vector<std::string> currencies = {"USD", "EUR", "GHS", "KES", "NGN"};
+    std::uniform_int_distribution<> event_dist;
     int id_counter;
 
 public:
-    TransactionGenerator() : 
+    LogGenerator() : 
         gen(std::chrono::system_clock::now().time_since_epoch().count()),
-        amount_dist(1, 1000),
-        currency_dist(0, 4),
+        event_dist(0, 4),
         id_counter(0) {}
 
-    Transaction generate() {
-        std::string id = "TX" + std::to_string(++id_counter);
-        std::string reference = "REF" + std::to_string(id_counter);
-        int64_t amount = amount_dist(gen);
-        std::string currency = currencies[currency_dist(gen)];
-        int64_t timestamp = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    Log generate() {
+        std::string reference = "REF" + std::to_string(++id_counter);
+        nlohmann::json metadata;
+        metadata["event"] = "Event" + std::to_string(event_dist(gen));
+        metadata["details"] = "This is log entry " + std::to_string(id_counter);
         
-        return Transaction(id, reference, currency, amount, timestamp);
+        return Log(reference, metadata);
     }
 };
 
@@ -45,37 +41,35 @@ double benchmark(Func f, int iterations) {
 void run_benchmarks() {
     try {
         DBWrapper db("./benchmark_db");
-        TransactionGenerator gen;
+        LogGenerator gen;
 
-        // for benchmarking a single insert benchmark
+        // Benchmark for single insert
         double single_insert_time = benchmark([&]() {
-            db.insert_transaction(gen.generate());
+            db.insert_log(gen.generate());
         }, 1000);
         std::cout << "Average time for single insert: " << single_insert_time << " seconds\n";
 
-        // for bulk insert benchmark
-        double bulk_insert_time = benchmark([&]() {
-            std::vector<Transaction> transactions;
-            for (int i = 0; i < 1000; ++i) {
-                transactions.push_back(gen.generate());
+        // Benchmark for multiple inserts
+        double multiple_insert_time = benchmark([&]() {
+            for (int i = 0; i < 100; ++i) {
+                db.insert_log(gen.generate());
             }
-            db.bulk_insert_transactions(transactions);
         }, 10);
-        std::cout << "Average time for bulk insert of 1,000 transactions: " << bulk_insert_time << " seconds\n";
+        std::cout << "Average time for inserting 100 logs: " << multiple_insert_time << " seconds\n";
 
-        // Retrieval benchmark
+        // Benchmark for retrieval
         double retrieval_time = benchmark([&]() {
-            db.get_transaction("TX1");
+            db.get_log("REF1");
         }, 1000);
         std::cout << "Average time for single retrieval: " << retrieval_time << " seconds\n";
 
-        // Range query benchmark
-        int64_t end_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-        int64_t start_time = end_time - 86400; // Last 24 hours
+        // Benchmark for range query
+        int64_t end_time = std::chrono::system_clock::now().time_since_epoch().count();
+        int64_t start_time = end_time - 86400000; // Last 24 hours in milliseconds
         double range_query_time = benchmark([&]() {
-            db.get_transactions_by_date_range(start_time, end_time);
+            db.get_logs_by_time_range(start_time, end_time);
         }, 100);
-        std::cout << "Average time fetching all data added in the last 24hrs: " << range_query_time << " seconds\n";
+        std::cout << "Average time for fetching all logs added in the last 24hrs: " << range_query_time << " seconds\n";
 
     } catch (const std::exception& e) {
         std::cerr << "Error in benchmarking: " << e.what() << std::endl;
