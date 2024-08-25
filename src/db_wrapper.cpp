@@ -1,6 +1,6 @@
 #include <stdexcept>
 #include "db_wrapper.h"
-#include "transaction.h"
+#include "log.h"
 
 DBWrapper::DBWrapper(const std::string& db_path) {
     rocksdb::Options options;
@@ -15,41 +15,30 @@ DBWrapper::~DBWrapper() {
     delete db;
 }
 
-bool DBWrapper::insert_transaction(const Transaction& tx) {
-    std::vector<char> serialized = tx.serialize();
-    rocksdb::Status status = db->Put(rocksdb::WriteOptions(), tx.id(), rocksdb::Slice(serialized.data(), serialized.size()));
+bool DBWrapper::insert_log(const Log& log) {
+    std::string serialized = log.serialize();
+    rocksdb::Status status = db->Put(rocksdb::WriteOptions(), log.reference(), serialized);
     return status.ok();
 }
 
-Transaction DBWrapper::get_transaction(const std::string& id) {
+Log DBWrapper::get_log(const std::string& reference) {
     std::string value;
-    rocksdb::Status status = db->Get(rocksdb::ReadOptions(), id, &value);
+    rocksdb::Status status = db->Get(rocksdb::ReadOptions(), reference, &value);
     if (!status.ok()) {
-        throw std::runtime_error("Failed to get transaction: " + status.ToString());
+        throw std::runtime_error("Failed to get log: " + status.ToString());
     }
-    return Transaction::deserialize(value.data(), value.size());
+    return Log::deserialize(value);
 }
 
-std::vector<Transaction> DBWrapper::get_transactions_by_date_range(int64_t start_timestamp, int64_t end_timestamp) {
-    std::vector<Transaction> result;
+std::vector<Log> DBWrapper::get_logs_by_time_range(int64_t start_timestamp, int64_t end_timestamp) {
+    std::vector<Log> result;
     rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        Transaction tx = Transaction::deserialize(it->value().data(), it->value().size());
-        if (tx.timestamp() >= start_timestamp && tx.timestamp() <= end_timestamp) {
-            result.push_back(tx);
+        Log log = Log::deserialize(it->value().ToString());
+        if (log.timestamp() >= start_timestamp && log.timestamp() <= end_timestamp) {
+            result.push_back(log);
         }
     }
     delete it;
     return result;
-}
-
-bool DBWrapper::bulk_insert_transactions(const std::vector<Transaction>& transactions) {
-    rocksdb::WriteBatch batch;
-    for (const auto& tx : transactions) {
-        std::vector<char> serialized = tx.serialize();
-        batch.Put(tx.id(), rocksdb::Slice(serialized.data(), serialized.size()));
-    }
-    
-    rocksdb::Status status = db->Write(rocksdb::WriteOptions(), &batch);
-    return status.ok();
 }

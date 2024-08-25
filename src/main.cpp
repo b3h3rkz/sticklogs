@@ -4,7 +4,7 @@
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
 #include "db_wrapper.h"
-#include "transaction.h"
+#include "log.h"
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
@@ -100,24 +100,19 @@ void handle_connection(tcp::socket& socket, DBWrapper& db) {
         
         if (action == "insert") {
             std::cout << "Processing insert action" << std::endl;
-            Transaction tx(
-                j["id"].get<std::string>(),
+            Log log(
                 j["reference"].get<std::string>(),
-                j["currency"].get<std::string>(),
-                j["amount_smallest_unit"].get<int64_t>(),
-                j["timestamp"].get<int64_t>()
+                j["metadata"]
             );
 
-            bool success = db.insert_transaction(tx);
+            bool success = db.insert_log(log);
 
             response["success"] = success;
-            response["message"] = success ? "Transaction saved successfully" : "Failed to save transaction";
-            response["transaction"] = {
-                {"id", tx.id()},
-                {"reference", tx.reference()},
-                {"currency", tx.currency()},
-                {"amount_smallest_unit", tx.amount_smallest_unit()},
-                {"timestamp", tx.timestamp()}
+            response["message"] = success ? "Log saved successfully" : "Failed to save log";
+            response["log"] = {
+                {"reference", log.reference()},
+                {"metadata", log.metadata()},
+                {"timestamp", log.timestamp()}
             };
         }
         else if (action == "query") {
@@ -125,17 +120,15 @@ void handle_connection(tcp::socket& socket, DBWrapper& db) {
             int64_t start_timestamp = j["start_timestamp"].get<int64_t>();
             int64_t end_timestamp = j["end_timestamp"].get<int64_t>();
 
-            std::vector<Transaction> transactions = db.get_transactions_by_date_range(start_timestamp, end_timestamp);
+            std::vector<Log> logs = db.get_logs_by_time_range(start_timestamp, end_timestamp);
 
             response["success"] = true;
-            response["transactions"] = json::array();
-            for (const auto& tx : transactions) {
-                response["transactions"].push_back({
-                    {"id", tx.id()},
-                    {"reference", tx.reference()},
-                    {"currency", tx.currency()},
-                    {"amount_smallest_unit", tx.amount_smallest_unit()},
-                    {"timestamp", tx.timestamp()}
+            response["logs"] = json::array();
+            for (const auto& log : logs) {
+                response["logs"].push_back({
+                    {"reference", log.reference()},
+                    {"metadata", log.metadata()},
+                    {"timestamp", log.timestamp()}
                 });
             }
             response["message"] = "Query executed successfully";
