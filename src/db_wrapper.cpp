@@ -1,9 +1,11 @@
 #include <stdexcept>
+#include <iostream>
 #include "db_wrapper.h"
 #include "config_reader.h"
 #include "log.h"
 #include <rocksdb/table.h>
 #include <rocksdb/filter_policy.h>
+#include <rocksdb/write_batch.h>
 
 DBWrapper::DBWrapper(const std::string& db_path, const std::string& config_path) {
     ConfigReader config(config_path);
@@ -99,4 +101,49 @@ std::vector<Log> DBWrapper::get_logs_by_time_range(int64_t start_timestamp, int6
     }
     delete it;
     return result;
+}
+
+bool DBWrapper::batch_insert_logs(const std::vector<Log>& logs) {
+    std::lock_guard<std::mutex> lock(db_mutex);
+    std::cout << "Starting batch insert of " << logs.size() << " logs" << std::endl;  // Debug log
+    rocksdb::WriteBatch batch;
+    for (const auto& log : logs) {
+        std::string serialized = log.serialize();
+        batch.Put(log.reference(), serialized);
+    }
+
+    rocksdb::WriteOptions write_options;
+    rocksdb::Status status = db->Write(write_options, &batch);
+
+    if (status.ok()) {
+        std::cout << "Batch insert successful" << std::endl;  // Debug log
+    } else {
+        std::cerr << "Batch insert failed: " << status.ToString() << std::endl;  // Debug log
+    }
+
+    return status.ok();
+}
+
+std::vector<Log> DBWrapper::get_all_logs() {
+    std::vector<Log> logs;
+    std::lock_guard<std::mutex> lock(db_mutex);
+    
+    rocksdb::ReadOptions read_options;
+    std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(read_options));
+
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        std::string value = it->value().ToString();
+        try {
+            Log log = Log::deserialize(value);
+            logs.push_back(log);
+        } catch (const std::exception& e) {
+            std::cerr << "Error deserializing log: " << e.what() << std::endl;
+        }
+    }
+
+    if (!it->status().ok()) {
+        std::cerr << "Error iterating over logs: " << it->status().ToString() << std::endl;
+    }
+
+    return logs;
 }
