@@ -1,4 +1,5 @@
-#pragma once
+#ifndef TRANSACTION_H
+#define TRANSACTION_H
 
 #include <string>
 #include <string_view>
@@ -9,27 +10,21 @@ class Transaction {
 public:
     Transaction(std::string id, std::string reference, std::string currency, int64_t amount_smallest_unit, int64_t timestamp);
 
-    // Disable copy constructor and assignment operator
-    Transaction(const Transaction&) = delete;
-    Transaction& operator=(const Transaction&) = delete;
+    std::string id() const;
+    std::string reference() const;
+    std::string currency() const;
+    int64_t amount_smallest_unit() const;
+    int64_t timestamp() const;
 
-    // Enable move constructor and assignment operator
-    Transaction(Transaction&&) noexcept = default;
-    Transaction& operator=(Transaction&&) noexcept = default;
-
-    const std::string& id() const { return id_; }
-    const std::string& reference() const { return reference_; }
-    const std::string& currency() const { return currency_; }
-    int64_t amount_smallest_unit() const { return amount_smallest_unit_; }
-    int64_t timestamp() const { return timestamp_; }
     std::vector<char> serialize() const;
     static Transaction deserialize(const char* data, size_t size);
-    bool is_valid() const;
 
 private:
-    std::string id_;
-    std::string reference_;
-    std::string currency_;
-    int64_t amount_smallest_unit_;
-    int64_t timestamp_;
+    std::string m_id;
+    std::string m_reference;
+    std::string m_currency;
+    int64_t m_amount_smallest_unit;
+    int64_t m_timestamp;
 };
+
+#endif // TRANSACTION_H
