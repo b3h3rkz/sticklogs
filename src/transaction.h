@@ -7,16 +7,16 @@
 
 class Transaction {
 public:
-    Transaction(std::string_view id, std::string_view reference, 
-                std::string_view currency, int64_t amount_smallest_unit,
-                int64_t timestamp);
-    
-    Transaction(Transaction&& other) noexcept;
-    
-    Transaction& operator=(Transaction&& other) noexcept;
+    Transaction(std::string id, std::string reference, std::string currency, int64_t amount_smallest_unit, int64_t timestamp);
 
+    // Disable copy constructor and assignment operator
     Transaction(const Transaction&) = delete;
     Transaction& operator=(const Transaction&) = delete;
+
+    // Enable move constructor and assignment operator
+    Transaction(Transaction&&) noexcept = default;
+    Transaction& operator=(Transaction&&) noexcept = default;
+
     const std::string& id() const { return id_; }
     const std::string& reference() const { return reference_; }
     const std::string& currency() const { return currency_; }

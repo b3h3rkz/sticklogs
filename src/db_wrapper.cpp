@@ -52,6 +52,7 @@ void DBWrapper::remove_db_lock(const std::string& db_path) {
 }
 
 bool DBWrapper::insert_transaction(const Transaction& transaction) {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::string key = generate_key(transaction);
     std::vector<char> value = transaction.serialize();
     rocksdb::Status status = db_->Put(rocksdb::WriteOptions(), key, rocksdb::Slice(value.data(), value.size()));
@@ -59,6 +60,7 @@ bool DBWrapper::insert_transaction(const Transaction& transaction) {
 }
 
 bool DBWrapper::bulk_insert_transactions(const std::vector<Transaction>& transactions) {
+    std::lock_guard<std::mutex> lock(mutex_);
     rocksdb::WriteBatch batch;
     for (const auto& transaction : transactions) {
         std::string key = generate_key(transaction);
@@ -70,6 +72,7 @@ bool DBWrapper::bulk_insert_transactions(const std::vector<Transaction>& transac
 }
 
 std::optional<Transaction> DBWrapper::get_transaction(const std::string& id) {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::string value;
     rocksdb::Status status = db_->Get(rocksdb::ReadOptions(), id, &value);
     if (status.ok()) {
@@ -79,6 +82,7 @@ std::optional<Transaction> DBWrapper::get_transaction(const std::string& id) {
 }
 
 std::vector<Transaction> DBWrapper::get_transactions_by_date_range(int64_t start_timestamp, int64_t end_timestamp) {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<Transaction> result;
     std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(rocksdb::ReadOptions()));
 

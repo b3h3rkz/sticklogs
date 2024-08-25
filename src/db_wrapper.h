@@ -1,11 +1,12 @@
 #pragma once
 
 #include <rocksdb/db.h>
-#include "transaction.h"  // Add this line
+#include "transaction.h"
 #include <string>
 #include <memory>
 #include <vector>
 #include <optional>
+#include <mutex>
 
 class DBWrapper {
 public:
@@ -22,4 +23,5 @@ private:
     std::string generate_key(const Transaction& transaction);
     std::string generate_key_from_timestamp(int64_t timestamp);
     static void remove_db_lock(const std::string& db_path);
+    mutable std::mutex mutex_;
 };
