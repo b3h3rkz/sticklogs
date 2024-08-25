@@ -35,13 +35,6 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
         boost::asio::streambuf request;
         boost::system::error_code ec;
 
-       // Set a timeout for the entire operation
-        // timer.expires_from_now(boost::posix_time::seconds(5));
-        // timer.async_wait([&socket](const boost::system::error_code& error) {
-        //     if (!error) {
-        //         socket.close();
-        //     }
-        // });
 
         // Read the headers
         boost::asio::read_until(socket, request, "\r\n\r\n", ec);
@@ -70,7 +63,7 @@ void handle_connection(tcp::socket socket, DBWrapper& db) {
         std::string body;
         std::vector<char> chunk(1024);  // Read in 1KB chunks
         size_t bytes_read = 0;
-        while (bytes_read < content_length) {
+        while (bytes_read < static_cast<size_t>(content_length)) {
             size_t chunk_size = std::min(static_cast<size_t>(content_length) - bytes_read, chunk.size());
             size_t n = boost::asio::read(socket, boost::asio::buffer(chunk, chunk_size), ec);
             if (ec && ec != boost::asio::error::eof) {
@@ -220,7 +213,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Press Ctrl+C to stop the service." << std::endl;
 
         while (g_running) {
-            boost::system::error_code ec;
+            // boost::system::error_code ec;
             tcp::socket socket(io_context);
             
             // Use async_accept with a timeout to allow periodic checking of g_running
