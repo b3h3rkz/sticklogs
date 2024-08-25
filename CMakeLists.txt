@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # set(YAML_CPP_DIR "/usr/local/Cellar/yaml-cpp/0.8.0")
 
 # use this for ubuntu
-set(YAML_CPP_DIR "/usr/include/yaml-cpp/yaml.h")
+set(YAML_CPP_DIR "/lib/x86_64-linux-gnu/libyaml-cpp.so.0.8")
 
 # Find yaml-cpp
 set(yaml-cpp_DIR "${YAML_CPP_DIR}/lib/cmake/yaml-cpp")
