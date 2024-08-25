@@ -115,6 +115,32 @@ void handle_connection(tcp::socket& socket, DBWrapper& db) {
                 {"timestamp", log.timestamp()}
             };
         }
+        else if (action == "query_by_reference") {
+            std::cout << "Processing query by reference action" << std::endl;
+            std::string reference = j["reference"].get<std::string>();
+            
+            try {
+                Log log = db.get_log(reference);
+
+                response["success"] = true;
+                response["log"] = {
+                    {"reference", log.reference()},
+                    {"metadata", log.metadata()},
+                    {"timestamp", log.timestamp()}
+                };
+                response["message"] = "Log found";
+            } catch (const std::runtime_error& e) {
+                // Log not found or other database error occurred
+                response["success"] = false;
+                response["message"] = "Log not found";
+                std::cerr << "Database error: " << e.what() << std::endl;
+            } catch (const std::exception& e) {
+                // Other unexpected errors
+                response["success"] = false;
+                response["message"] = "An unexpected error occurred";
+                std::cerr << "Unexpected error: " << e.what() << std::endl;
+            }
+        }
         else if (action == "query") {
             std::cout << "Processing query action" << std::endl;
             int64_t start_timestamp = j["start_timestamp"].get<int64_t>();
