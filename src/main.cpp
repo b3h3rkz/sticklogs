@@ -1,6 +1,11 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <functional>
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
 #include "db_wrapper.h"
@@ -17,116 +22,111 @@ std::string get_current_time() {
     return ss.str();
 }
 
+class ThreadSafeQueue {
+private:
+    std::queue<std::function<void()>> queue;
+    std::mutex mutex;
+    std::condition_variable cond;
+
+public:
+    void push(std::function<void()> task) {
+        std::unique_lock<std::mutex> lock(mutex);
+        queue.push(std::move(task));
+        cond.notify_one();
+    }
+
+    std::function<void()> pop() {
+        std::unique_lock<std::mutex> lock(mutex);
+        cond.wait(lock, [this] { return !queue.empty(); });
+        auto task = std::move(queue.front());
+        queue.pop();
+        return task;
+    }
+};
+
+class ThreadPool {
+private:
+    std::vector<std::thread> workers;
+    ThreadSafeQueue tasks;
+    std::atomic<bool> stop;
+
+public:
+    ThreadPool(size_t num_threads) : stop(false) {
+        for (size_t i = 0; i < num_threads; ++i) {
+            workers.emplace_back([this] {
+                while (!stop) {
+                    auto task = tasks.pop();
+                    task();
+                }
+            });
+        }
+    }
+
+    ~ThreadPool() {
+        stop = true;
+        for (size_t i = 0; i < workers.size(); ++i) {
+            tasks.push([] {});
+        }
+        for (auto& worker : workers) {
+            worker.join();
+        }
+    }
+
+    void enqueue(std::function<void()> task) {
+        tasks.push(std::move(task));
+    }
+};
+
 void handle_connection(tcp::socket& socket, DBWrapper& db) {
     std::cout << "New connection handled at: " << get_current_time() << std::endl;
     try {
-        if (!socket.is_open()) {
-            std::cerr << "Socket is not open" << std::endl;
-            return;
-        }
-
         boost::asio::streambuf request;
         boost::system::error_code ec;
 
-        // Read the request
         size_t bytes_transferred = boost::asio::read_until(socket, request, "\r\n\r\n", ec);
         if (ec) {
             std::cerr << "Error reading request: " << ec.message() << std::endl;
-            std::cerr << "Bytes transferred before error: " << bytes_transferred << std::endl;
             return;
         }
-        std::cout << "Read " << bytes_transferred << " bytes from request" << std::endl;
 
-        // Convert the request to a string
         std::string request_str(boost::asio::buffers_begin(request.data()),
                                 boost::asio::buffers_begin(request.data()) + bytes_transferred);
-        std::cout << "Request headers:\n" << request_str << std::endl;
-
-        // Parse the request body
-        std::istream request_stream(&request);
-        std::string header;
-        while (std::getline(request_stream, header) && header != "\r") {
-            std::cout << "Header: " << header << std::endl;
-        }
-
-        // Read the request body
+        
         size_t content_length = 0;
         if (request_str.find("Content-Length: ") != std::string::npos) {
             content_length = std::stoul(request_str.substr(request_str.find("Content-Length: ") + 16));
-            std::cout << "Content-Length: " << content_length << std::endl;
         }
 
         std::string body;
         if (content_length > 0) {
             body.resize(content_length);
-            request_stream.read(&body[0], content_length);
-            std::cout << "Request body:\n" << body << std::endl;
-        }
-
-        // Parse JSON
-        json j;
-        try {
-            j = json::parse(body);
-            std::cout << "JSON parsed successfully" << std::endl;
-        } catch (const json::parse_error& e) {
-            std::cerr << "JSON parse error: " << e.what() << std::endl;
-            // Send an error response
-            json error_response = {
-                {"success", false},
-                {"message", "Invalid JSON in request body"}
-            };
-            std::string response_body = error_response.dump(4);
-            std::string response_str = "HTTP/1.1 400 Bad Request\r\n";
-            response_str += "Content-Type: application/json\r\n";
-            response_str += "Content-Length: " + std::to_string(response_body.length()) + "\r\n";
-            response_str += "\r\n";
-            response_str += response_body;
-
-            boost::system::error_code ec;
-            boost::asio::write(socket, boost::asio::buffer(response_str), ec);
+            boost::asio::read(socket, boost::asio::buffer(body), ec);
             if (ec) {
-                std::cerr << "Error sending error response: " << ec.message() << std::endl;
-            } else {
-                std::cout << "Error response sent successfully" << std::endl;
+                std::cerr << "Error reading body: " << ec.message() << std::endl;
+                return;
             }
-            return;
         }
 
-        // Handle the request
+        json j = json::parse(body);
         std::string action = j["action"];
-        std::cout << "Action: " << action << std::endl;
         
         json response;
         
         if (action == "insert") {
-            std::cout << "Processing insert action" << std::endl;
-            Log log(
-                j["reference"].get<std::string>(),
-                j["metadata"]
-            );
-
+            Log log(j["reference"], j["metadata"]);
             bool success = db.insert_log(log);
-
-            if (success) {
-                response["success"] = true;
-                response["message"] = "Log saved successfully";
-                response["log"] = {
-                    {"reference", log.reference()},
-                    {"metadata", log.metadata()},
-                    {"timestamp", log.timestamp()}
-                };
-            } else {
-                response["success"] = false;
-                response["message"] = "Failed to save log: Duplicate reference";
-            }
+            response["success"] = success;
+            response["message"] = success ? "Log saved successfully" : "Failed to save log";
+            response["log"] = {
+                {"reference", log.reference()},
+                {"metadata", log.metadata()},
+                {"timestamp", log.timestamp()}
+            };
         }
         else if (action == "query_by_reference") {
-            std::cout << "Processing query by reference action" << std::endl;
-            std::string reference = j["reference"].get<std::string>();
-            
+            std::string reference = j["reference"];
             try {
                 Log log = db.get_log(reference);
-
                 response["success"] = true;
                 response["log"] = {
                     {"reference", log.reference()},
@@ -135,24 +135,14 @@ void handle_connection(tcp::socket& socket, DBWrapper& db) {
                 };
                 response["message"] = "Log found";
             } catch (const std::runtime_error& e) {
-                // Log not found or other database error occurred
                 response["success"] = false;
                 response["message"] = "Log not found";
-                std::cerr << "Database error: " << e.what() << std::endl;
-            } catch (const std::exception& e) {
-                // Other unexpected errors
-                response["success"] = false;
-                response["message"] = "An unexpected error occurred";
-                std::cerr << "Unexpected error: " << e.what() << std::endl;
             }
         }
         else if (action == "query") {
-            std::cout << "Processing query action" << std::endl;
-            int64_t start_timestamp = j["start_timestamp"].get<int64_t>();
-            int64_t end_timestamp = j["end_timestamp"].get<int64_t>();
-
+            int64_t start_timestamp = j["start_timestamp"];
+            int64_t end_timestamp = j["end_timestamp"];
             std::vector<Log> logs = db.get_logs_by_time_range(start_timestamp, end_timestamp);
-
             response["success"] = true;
             response["logs"] = json::array();
             for (const auto& log : logs) {
@@ -165,40 +155,28 @@ void handle_connection(tcp::socket& socket, DBWrapper& db) {
             response["message"] = "Query executed successfully";
         }
         else {
-            std::cerr << "Unknown action: " << action << std::endl;
             response["success"] = false;
             response["message"] = "Unknown action";
         }
 
-        // Generate and send the response
-        std::string response_body = response.dump(4);  // Pretty print with 4-space indent
+        std::string response_body = response.dump(4);
         std::string response_str = "HTTP/1.1 200 OK\r\n";
         response_str += "Content-Type: application/json\r\n";
         response_str += "Content-Length: " + std::to_string(response_body.length()) + "\r\n";
         response_str += "\r\n";
         response_str += response_body;
 
-        std::cout << "Sending response:\n" << response_str << std::endl;
-
         boost::asio::write(socket, boost::asio::buffer(response_str), ec);
         if (ec) {
             std::cerr << "Error sending response: " << ec.message() << std::endl;
-        } else {
-            std::cout << "Response sent successfully" << std::endl;
         }
 
-        // Close the socket
         socket.shutdown(tcp::socket::shutdown_both, ec);
-        if (ec) std::cerr << "Error shutting down socket: " << ec.message() << std::endl;
         socket.close(ec);
-        if (ec) std::cerr << "Error closing socket: " << ec.message() << std::endl;
-
-        std::cout << "Connection closed" << std::endl;
     }
     catch (const std::exception& e) {
         std::cerr << "Exception in handle_connection: " << e.what() << std::endl;
     }
-    std::cout << "Connection handling completed" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -209,29 +187,45 @@ int main(int argc, char* argv[]) {
 
     std::string db_path = argv[1];
     const unsigned short port = 54321;
+    const int max_connections = 10000;
 
     try {
-        std::cout << "=== StickyLogs Service ===" << std::endl;
-        std::cout << "Starting service at: " << get_current_time() << std::endl;
-        
-        DBWrapper db(db_path);
-        std::cout << "Database opened successfully." << std::endl;
-
         boost::asio::io_context io_context;
         tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
 
-        std::cout << "Listening on port " << port << std::endl;
-        std::cout << "Service is ready to accept connections." << std::endl;
+        DBWrapper db(db_path);
+        ThreadPool pool(std::thread::hardware_concurrency());
 
-        while (true) {
-            std::cout << "Waiting for connection..." << std::endl;
-            tcp::socket socket(io_context);
-            acceptor.accept(socket);
-            std::cout << "New connection accepted at: " << get_current_time() << std::endl;
-            
-            // Handle the connection in the main thread
-            handle_connection(socket, db);
+        std::cout << "=== StickyLogs Service ===" << std::endl;
+        std::cout << "Starting service at: " << get_current_time() << std::endl;
+        std::cout << "Listening on port " << port << std::endl;
+        std::cout << "Max connections: " << max_connections << std::endl;
+
+        std::vector<std::shared_ptr<tcp::socket>> sockets(max_connections);
+        for (int i = 0; i < max_connections; ++i) {
+            sockets[i] = std::make_shared<tcp::socket>(io_context);
         }
+
+        std::function<void(std::shared_ptr<tcp::socket>, size_t)> accept_connection;
+        accept_connection = [&](std::shared_ptr<tcp::socket> socket, size_t index) {
+            acceptor.async_accept(*socket, [&, socket, index](boost::system::error_code ec) {
+                if (!ec) {
+                    std::cout << "New connection accepted at: " << get_current_time() << std::endl;
+                    pool.enqueue([socket, &db] {
+                        handle_connection(*socket, db);
+                    });
+                    accept_connection(sockets[index], index);
+                } else {
+                    std::cerr << "Accept error: " << ec.message() << std::endl;
+                }
+            });
+        };
+
+        for (size_t i = 0; i < max_connections; ++i) {
+            accept_connection(sockets[i], i);
+        }
+
+        io_context.run();
     }
     catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

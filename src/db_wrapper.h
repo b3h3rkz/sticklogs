@@ -17,6 +17,7 @@ public:
 
 private:
     rocksdb::DB* db;
+    std::mutex db_mutex;
 };
 
 #endif // DB_WRAPPER_H

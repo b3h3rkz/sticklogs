@@ -16,6 +16,7 @@ DBWrapper::~DBWrapper() {
 }
 
 bool DBWrapper::insert_log(const Log& log) {
+    std::lock_guard<std::mutex> lock(db_mutex);
     rocksdb::WriteBatch batch;
     std::string key = log.reference();
     std::string value = log.serialize();
@@ -45,6 +46,7 @@ bool DBWrapper::insert_log(const Log& log) {
 }
 
 Log DBWrapper::get_log(const std::string& reference) {
+    std::lock_guard<std::mutex> lock(db_mutex);
     std::string value;
     rocksdb::Status status = db->Get(rocksdb::ReadOptions(), reference, &value);
     if (!status.ok()) {
@@ -54,6 +56,7 @@ Log DBWrapper::get_log(const std::string& reference) {
 }
 
 std::vector<Log> DBWrapper::get_logs_by_time_range(int64_t start_timestamp, int64_t end_timestamp) {
+    std::lock_guard<std::mutex> lock(db_mutex);
     std::vector<Log> result;
     rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
