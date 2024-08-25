@@ -1,10 +1,42 @@
 #include <stdexcept>
 #include "db_wrapper.h"
+#include "config_reader.h"
 #include "log.h"
+#include <rocksdb/table.h>
+#include <rocksdb/filter_policy.h>
 
-DBWrapper::DBWrapper(const std::string& db_path) {
+DBWrapper::DBWrapper(const std::string& db_path, const std::string& config_path) {
+    ConfigReader config(config_path);
+
     rocksdb::Options options;
     options.create_if_missing = true;
+
+    // Read configuration
+    options.write_buffer_size = config.getInt64("write_buffer_size", 64 * 1024 * 1024);
+    options.max_write_buffer_number = config.getInt("max_write_buffer_number", 3);
+    options.min_write_buffer_number_to_merge = config.getInt("min_write_buffer_number_to_merge", 1);
+
+    std::string compression_str = config.getString("compression", "lz4");
+    if (compression_str == "lz4") {
+        options.compression = rocksdb::kLZ4Compression;
+    } else if (compression_str == "snappy") {
+        options.compression = rocksdb::kSnappyCompression;
+    } else {
+        options.compression = rocksdb::kNoCompression;
+    }
+    options.compression_opts.level = config.getInt("compression_level", 4);
+
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.block_cache = rocksdb::NewLRUCache(config.getInt64("block_cache_size", 256 * 1024 * 1024));
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(config.getInt("bloom_filter_bits_per_key", 10), false));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    options.max_background_jobs = config.getInt("max_background_jobs", 2);
+    options.bytes_per_sync = config.getInt64("bytes_per_sync", 1048576);
+    options.compaction_style = rocksdb::kCompactionStyleLevel;
+    options.max_background_compactions = config.getInt("max_background_compactions", 4);
+    options.max_background_flushes = config.getInt("max_background_flushes", 2);
+
     rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db);
     if (!status.ok()) {
         throw std::runtime_error("Failed to open database: " + status.ToString());

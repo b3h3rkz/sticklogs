@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <fstream> 
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -10,9 +11,14 @@
 #include <nlohmann/json.hpp>
 #include "db_wrapper.h"
 #include "log.h"
+#include <boost/filesystem.hpp>
 
 using json = nlohmann::json;
 using boost::asio::ip::tcp;
+
+namespace fs = boost::filesystem;
+
+const std::string CONFIG_PATH = "../config/db_config.yaml";
 
 std::string get_current_time() {
     auto now = std::chrono::system_clock::now();
@@ -186,20 +192,32 @@ int main(int argc, char* argv[]) {
     }
 
     std::string db_path = argv[1];
-    const unsigned short port = 54321;
-    const int max_connections = 10000;
+
+    // Check if config file exists and is readable
+    std::ifstream config_file(CONFIG_PATH);
+    if (!config_file.good()) {
+        std::cerr << "Error: Unable to read config file at " << CONFIG_PATH << std::endl;
+        return 1;
+    }
+    config_file.close();
 
     try {
-        boost::asio::io_context io_context;
-        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+        DBWrapper db(db_path, CONFIG_PATH);
 
-        DBWrapper db(db_path);
-        ThreadPool pool(std::thread::hardware_concurrency());
+        const unsigned short port = 54321;
+        const int max_connections = 10000;
 
         std::cout << "=== StickyLogs Service ===" << std::endl;
         std::cout << "Starting service at: " << get_current_time() << std::endl;
+        std::cout << "Database path: " << db_path << std::endl;
+        std::cout << "Config file: " << CONFIG_PATH << std::endl;
         std::cout << "Listening on port " << port << std::endl;
         std::cout << "Max connections: " << max_connections << std::endl;
+
+        boost::asio::io_context io_context;
+        tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), port));
+
+        ThreadPool pool(std::thread::hardware_concurrency());
 
         std::vector<std::shared_ptr<tcp::socket>> sockets(max_connections);
         for (int i = 0; i < max_connections; ++i) {

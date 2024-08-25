@@ -5,10 +5,11 @@
 #include <vector>
 #include <rocksdb/db.h>
 #include "log.h"
+#include "config_reader.h"
 
 class DBWrapper {
 public:
-    DBWrapper(const std::string& db_path);
+    DBWrapper(const std::string& db_path, const std::string& config_path);
     ~DBWrapper();
 
     bool insert_log(const Log& log);
