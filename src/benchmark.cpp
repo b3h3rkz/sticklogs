@@ -57,7 +57,6 @@ void run_benchmarks() {
         }, 10);
         std::cout << "Average time for inserting 100 logs: " << multiple_insert_time << " seconds\n";
 
-        // Benchmark for retrieval
         double retrieval_time = benchmark([&]() {
             db.get_log("REF1");
         }, 1000);

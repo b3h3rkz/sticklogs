@@ -31,6 +31,7 @@ std::string get_current_time() {
 
 void handle_connection(boost::asio::io_context& io_context, tcp::socket socket, std::shared_ptr<DBWrapper> db) {
     std::cout << "New connection handled at: " << get_current_time() << std::endl;
+    std::cout << "Received request: " << std::endl;
     try {
         boost::asio::streambuf request;
         boost::system::error_code ec;
@@ -60,17 +61,19 @@ void handle_connection(boost::asio::io_context& io_context, tcp::socket socket, 
             body.resize(content_length);
             
             boost::asio::steady_timer timer(io_context);
-            timer.expires_after(std::chrono::seconds(5));  // 5-second timeout
+            timer.expires_after(std::chrono::seconds(10));  // Increased timeout to 10 seconds
 
             boost::system::error_code ec;
             auto read_handler = [&](const boost::system::error_code& error, std::size_t bytes_transferred) {
                 timer.cancel();
                 ec = error;
+                std::cout << "Read handler called. Bytes transferred: " << bytes_transferred << std::endl;  // Debug log
             };
 
             auto timeout_handler = [&](const boost::system::error_code& error) {
                 if (!error) {
-                    socket.cancel();
+                    std::cerr << "Timeout occurred while reading body" << std::endl;  // Debug log
+                    socket.cancel();  // Cancel the socket operation
                     ec = boost::asio::error::timed_out;
                 }
             };
@@ -91,9 +94,28 @@ void handle_connection(boost::asio::io_context& io_context, tcp::socket socket, 
             std::cout << "Body read successfully. Length: " << body.length() << std::endl;  // Debug log
         }
 
-        std::cout << "Received body: " << body << std::endl;  // Debug log
+        // New debug log to check the received body
+        std::cout << "Received body: '" << body << "'" << std::endl;  // Debug log
 
-        json j = json::parse(body);
+        // Check if the body is empty before parsing
+        if (body.empty()) {
+            std::cerr << "Received empty body" << std::endl;
+            json error_response = {
+                {"success", false},
+                {"message", "Empty request body"}
+            };
+            // Send error response back
+            std::string error_body = error_response.dump();
+            std::string error_response_str = "HTTP/1.1 400 Bad Request\r\n";
+            error_response_str += "Content-Type: application/json\r\n";
+            error_response_str += "Content-Length: " + std::to_string(error_body.length()) + "\r\n";
+            error_response_str += "\r\n";
+            error_response_str += error_body;
+            boost::asio::write(socket, boost::asio::buffer(error_response_str), ec);
+            return;
+        }
+
+        json j = json::parse(body);  // Attempt to parse the JSON
         std::string action = j["action"];
         
         std::cout << "Action: " << action << std::endl;  // Debug log
