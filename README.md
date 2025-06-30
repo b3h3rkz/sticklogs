@@ -222,8 +222,7 @@ For production deployments, consider setting up comprehensive monitoring:
 
 ## Contributing
 
-We welcome contributions! Please read our CONTRIBUTING.md file for guidelines on how to make StickyLogs even better.
-
+I will figure out the correct process for this soon
 ## License
 
 This project is licensed under the MIT License 
